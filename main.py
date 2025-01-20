@@ -2,10 +2,14 @@ import sys
 from PyQt6.QtWidgets import (
     QMainWindow, QLabel, QLineEdit, QListWidget, QFileDialog
 )
-from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QInputDialog, QMessageBox
 import os
 import sqlite3
+from PyQt6.QtWidgets import (
+    QWidget, QLabel, QVBoxLayout, QLineEdit, QPushButton, QTextEdit, QApplication,
+    QMessageBox
+)
+from PyQt6.QtCore import Qt, QTimer
 
 
 class Database:
@@ -161,7 +165,6 @@ class QuizApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("Программа для проверки знаний")
         self.setGeometry(0, 0, 1920, 1080)
-        self.showFullScreen()
 
         self.database = Database()
         self.results_database = ResultsDatabase()
@@ -250,35 +253,33 @@ class StudentWindow(QWidget):
         self.parent = parent
         self.student_name = student_name
         self.quiz_ended = False
-
         self.duration = duration
 
         self.setWindowTitle("Ученик")
-
         self.setGeometry(0, 0, 1920, 1080)
         self.showFullScreen()
-        self.question_label = QLabel(self)
-        self.question_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.question_label.setStyleSheet(
-            "font-size: 40px; font-weight: bold;")
+
+        # Создаем виджеты
+        self.question_text_edit = QTextEdit(self)
+        self.question_text_edit.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.question_text_edit.setStyleSheet("font-size: 40px; font-weight: bold;")
+        self.question_text_edit.setReadOnly(True)
 
         self.answer_input = QLineEdit(self)
         self.answer_input.setPlaceholderText("Введите ваш ответ...")
 
         self.submit_button = QPushButton("Ответить", self)
-        self.submit_button.setFixedWidth(150)
+        self.submit_button.setFixedWidth(650)
         self.back_button = QPushButton("Назад", self)
         self.back_button.setFixedWidth(150)
 
         self.correct_answer_counter = QLabel("Правильные ответы: 0", self)
-        self.correct_answer_counter.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.correct_answer_counter.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.correct_answer_counter.setStyleSheet("font-size: 16px; font-weight: bold;")
 
         self.timer_label = QLabel(f"Оставшееся время: {self.format_time(self.duration)}", self)
-        self.timer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.timer_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.timer_label.setStyleSheet("font-size: 16px; font-weight: bold;")
-
-        self.initUI()
 
         self.score = 0
         self.questions = self.database.get_questions()
@@ -292,6 +293,8 @@ class StudentWindow(QWidget):
             self.load_question()
         else:
             QMessageBox.warning(self, "Ошибка", "Нет доступных вопросов для теста!")
+
+        self.initUI()
 
     def keyPressEvent(self, event):
         """Закрытие приложения при нажатии Esc"""
@@ -308,15 +311,19 @@ class StudentWindow(QWidget):
             self.duration -= 1
             self.timer_label.setText(f"Оставшееся время: {self.format_time(self.duration)}")
         else:
-            if not self.quiz_ended:  # Проверка, завершена ли викторина
-                self.quiz_ended = True
-                self.end_quiz()  # Завершение викторины
+            self.duration = 0  # Обнуляем таймер
+            self.timer.stop()  # Останавливаем таймер
+            self.end_quiz()  # Завершение викторины
 
     def initUI(self):
         layout = QVBoxLayout()
+
+        font_size = "font-size: 14px; padding: 10px;"
+        self.submit_button.setStyleSheet(font_size)
+
+        layout.addWidget(self.question_text_edit)
         layout.addWidget(self.correct_answer_counter)
         layout.addWidget(self.timer_label)
-        layout.addWidget(self.question_label)
         layout.addWidget(self.answer_input)
         layout.addWidget(self.submit_button)
         layout.addWidget(self.back_button)
@@ -327,11 +334,11 @@ class StudentWindow(QWidget):
         self.setLayout(layout)
 
     def load_question(self):
-        """Загрузка следующего вопроса из базы данных со номером вопроса"""
+        """Загрузка следующего вопроса"""
         if self.current_question_index < len(self.questions):
             question_number = self.current_question_index + 1
-            self.question_label.setText(
-                f"Вопрос {question_number}: {self.questions[self.current_question_index][1]}")
+            question_text = self.questions[self.current_question_index][1]
+            self.question_text_edit.setPlainText(f"Вопрос {question_number}: {question_text}")
             self.answer_input.clear()
         else:
             self.end_quiz()
@@ -351,15 +358,20 @@ class StudentWindow(QWidget):
             else:
                 QMessageBox.warning(self, "Неправильно!", f"Правильный ответ: {correct_answer}")
 
-            self.current_question_index += 1
+        self.current_question_index += 1
+
+        if self.current_question_index < len(self.questions):
             self.load_question()
+        else:
+            self.duration = 0  # Обнуляем таймер до завершения викторины
+            self.end_quiz()
 
     def end_quiz(self):
-        """Завершение викторины и вывод результата"""
-        if self.quiz_ended:  # Вторичная проверка, чтобы избежать дублирования
+        """Завершение викторины"""
+        if self.quiz_ended:
             return
 
-        self.quiz_ended = True  # Установить, что викторина завершена
+        self.quiz_ended = True
         grade = self.calculate_grade(self.score)
         self.results_database.insert_result(self.student_name, self.score)
         QMessageBox.information(self, "Викторина завершена!",
@@ -368,7 +380,7 @@ class StudentWindow(QWidget):
         self.parent.show()
 
     def calculate_grade(self, score):
-        """Подсчёт оценки на основе баллов"""
+        """Подсчёт оценки"""
         total_questions = len(self.questions)
         if total_questions == 0:
             return "Нет вопросов"
@@ -384,6 +396,7 @@ class StudentWindow(QWidget):
 
     def go_back(self):
         """Возврат к главному окну"""
+        self.duration = 0  # Обнуляем таймер перед возвратом
         self.parent.show()
         self.close()
 
